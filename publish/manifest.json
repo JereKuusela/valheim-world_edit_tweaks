@@ -1,0 +1,9 @@
+{
+  "name": "World_Edit_Tweaks",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/JereKuusela/valheim-world_edit_tweaks",
+  "description": "Extends the vanilla object modification system.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2200"
+  ]
+}
