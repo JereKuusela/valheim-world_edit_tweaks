@@ -34,6 +34,7 @@ With this mod:
   - With this mod, `false` is saved as -1 which won't be removed.
 - ZNetView syncInitialScale can be set to allow scaling.
   - Vanilla system doesn't support this because the scaling is checked before the modification is loaded.
+  - World Edit Commands automatically sets this to true when scaling is used.
 
 ## Credits
 
