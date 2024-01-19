@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using BepInEx;
@@ -24,11 +26,45 @@ public class WorldEditTweaks : BaseUnityPlugin
   {
     new Harmony(GUID).PatchAll();
   }
+  public void Start()
+  {
+    Patches.LoadTypes();
+  }
 }
 
 [HarmonyPatch]
 public class Patches
 {
+  static Dictionary<string, Type> Components = [];
+  public static void LoadTypes()
+  {
+    List<Assembly> assemblies = [Assembly.GetAssembly(typeof(ZNetView)), .. Chainloader.PluginInfos.Values.Where(p => p.Instance != null).Select(p => p.Instance.GetType().Assembly)];
+    var assembly = Assembly.GetAssembly(typeof(ZNetView));
+    var baseType = typeof(MonoBehaviour);
+    var types = assemblies.SelectMany(s =>
+    {
+      try
+      {
+        return s.GetTypes();
+      }
+      catch (ReflectionTypeLoadException e)
+      {
+        return e.Types.Where(t => t != null);
+      }
+    }).Where(t =>
+    {
+      try
+      {
+        return baseType.IsAssignableFrom(t);
+      }
+      catch
+      {
+        return false;
+      }
+    }).ToArray();
+    foreach (var t in types)
+      Components[t.Name] = t;
+  }
 
   [HarmonyPatch(typeof(LocationProxy), nameof(LocationProxy.SpawnLocation)), HarmonyPostfix]
   static void LoadLocationFields(LocationProxy __instance, bool __result)
@@ -67,10 +103,21 @@ public class Patches
       .InsertAndAdvance(new CodeInstruction(OpCodes.Ldarg_0))
       .InstructionEnumeration();
   }
-
+  static readonly int HashComponents = "HasComponents".GetStableHashCode();
   static void LoadFieldsOverride(ZNetView view)
   {
+    // Todo: This is called twice? Transpilers failing?
     var zdo = view.GetZDO();
+    var components = zdo.GetString(HashComponents);
+    if (components != "")
+    {
+      var split = components.Split(',').Select(s => s.Trim()).Where(Components.ContainsKey).Select(s => Components[s]).ToArray();
+      foreach (var c in split)
+      {
+        if (view.GetComponent(c)) continue;
+        view.gameObject.AddComponent(c);
+      }
+    }
     view.GetComponentsInChildren<MonoBehaviour>(ZNetView.m_tempComponents);
     foreach (var c in ZNetView.m_tempComponents)
     {
