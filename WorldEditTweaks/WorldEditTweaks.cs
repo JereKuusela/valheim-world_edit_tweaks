@@ -103,19 +103,65 @@ public class Patches
       .InsertAndAdvance(new CodeInstruction(OpCodes.Ldarg_0))
       .InstructionEnumeration();
   }
-  static readonly int HashComponents = "HasComponents".GetStableHashCode();
+  static readonly int HashComponents = "AddComponents".GetStableHashCode();
+  static readonly int HashRemoveComponents = "RemoveComponents".GetStableHashCode();
+  static readonly int HashHideChild = "HideChild".GetStableHashCode();
   static void LoadFieldsOverride(ZNetView view)
   {
     // Todo: This is called twice? Transpilers failing?
     var zdo = view.GetZDO();
+    var removeComponents = zdo.GetString(HashRemoveComponents);
+    if (removeComponents != "")
+    {
+      var split = removeComponents.Split(',').Select(s => s.Trim());
+      var toRemove = split.Where(Components.ContainsKey).Select(s => Components[s]).ToArray();
+      foreach (var c in toRemove)
+      {
+        if (!view.GetComponent(c)) continue;
+        if (view.GetComponent(c) is MonoBehaviour m) m.enabled = false;
+        UnityEngine.Object.Destroy(view.GetComponent(c));
+      }
+    }
     var components = zdo.GetString(HashComponents);
     if (components != "")
     {
-      var split = components.Split(',').Select(s => s.Trim()).Where(Components.ContainsKey).Select(s => Components[s]).ToArray();
+      var split = components.Split(',').Select(s => s.Trim().Split(':'));
+      var toAdd = split.Where(s => Components.ContainsKey(s[0])).ToArray();
+      foreach (var c in toAdd)
+      {
+        var component = Components[c[0]];
+        if (view.GetComponent(component)) continue;
+        Component? from = null;
+        if (c.Length > 1)
+          from = ZNetScene.instance.GetPrefab(c[1])?.GetComponent(component);
+
+        if (from != null)
+          view.gameObject.SetActive(false);
+
+        var ret = view.gameObject.AddComponent(component);
+
+        if (from != null)
+        {
+          var fields = component.GetFields(BindingFlags.Instance | BindingFlags.Public);
+          foreach (var f in fields)
+          {
+            // Actions would point to the from object, so skip them.
+            if (IsAction(f.FieldType)) continue;
+            f.SetValue(ret, f.GetValue(from));
+          }
+          view.gameObject.SetActive(true);
+        }
+      }
+    }
+    var hideChild = zdo.GetString(HashHideChild);
+    if (hideChild != "")
+    {
+      var split = hideChild.Split(',').Select(s => s.Trim());
       foreach (var c in split)
       {
-        if (view.GetComponent(c)) continue;
-        view.gameObject.AddComponent(c);
+        var str = c[0] == '/' ? c.Substring(1) : c;
+        var child = view.transform.Find(str);
+        if (child) child.gameObject.SetActive(false);
       }
     }
     view.GetComponentsInChildren<MonoBehaviour>(ZNetView.m_tempComponents);
@@ -162,5 +208,16 @@ public class Patches
           f.SetValue(c, Helper.ParseEffects(str));
       }
     }
+  }
+  static bool IsAction(Type type)
+  {
+    if (type == typeof(Action)) return true;
+    Type? generic = null;
+    if (type.IsGenericTypeDefinition) generic = type;
+    else if (type.IsGenericType) generic = type.GetGenericTypeDefinition();
+    if (generic == null) return false;
+    if (generic == typeof(Action<>)) return true;
+    if (generic == typeof(Action<,>)) return true;
+    return false;
   }
 }
